@@ -1,29 +1,40 @@
-const CACHE = "mindloom-v1";
-const ASSETS = ["/", "/index.html", "/manifest.json"];
+// A very small app-shell service worker for offline support.
+const CACHE_NAME = 'mindloom-cache-v1';
+const ASSETS = [
+  './',
+  './index.html',
+  './manifest.webmanifest',
+  './assets/icon-192.png',
+  './assets/icon-512.png',
+  './assets/maskable-512.png',
+];
 
-self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)));
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
+  );
+  self.skipWaiting();
 });
 
-self.addEventListener("activate", (e) => {
-  e.waitUntil(
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
+      Promise.all(keys.map((k) => (k === CACHE_NAME ? null : caches.delete(k))))
     )
   );
+  self.clients.claim();
 });
 
-self.addEventListener("fetch", (e) => {
-  const { request } = e;
-  if (request.method !== "GET") return;
-  e.respondWith(
-    caches.match(request).then((cached) =>
-      cached ||
-      fetch(request).then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(request, copy));
-        return res;
-      }).catch(() => caches.match("/index.html"))
-    )
-  );
+self.addEventListener('fetch', (event) => {
+  const req = event.request;
+  // Network-first for navigation, cache-first for static assets
+  if (req.mode === 'navigate') {
+    event.respondWith(
+      fetch(req).catch(() => caches.match('./index.html'))
+    );
+  } else {
+    event.respondWith(
+      caches.match(req).then((res) => res || fetch(req))
+    );
+  }
 });
