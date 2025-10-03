@@ -1,58 +1,8 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#EC6AA0" />
-    <title>MindLoom</title>
-
-    <!-- PWA bits -->
-    <link rel="manifest" href="manifest.json">
-    <link rel="icon" href="icon-192.png" type="image/png">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <link rel="apple-touch-icon" href="icon-192.png">
-
-    <style>
-      html, body { height: 100%; margin: 0; background: #faf7fb; }
-      #root { min-height: 100%; }
-    </style>
-  </head>
-  <body>
-    <noscript>This app requires JavaScript.</noscript>
-    <div id="root"></div>
-
-    <!-- React 18 + ReactDOM via CDN -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <!-- Babel so JSX works without a bundler -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-    <!-- INLINE APP CODE (works by itself) -->
-    <script type="text/babel" data-presets="react">
-      function App() {
-        return (
-          <div style={{padding: 24, fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial"}}>
-            <h1 style={{marginTop: 0, color: "#EC6AA0"}}>MindLoom</h1>
-            <p>If you can see this, the React app is running.</p>
-            <p>Next step: we’ll paste your full app code here.</p>
-          </div>
-        );
-      }
-      const root = ReactDOM.createRoot(document.getElementById('root'));
-      root.render(<App />);
-      console.log('MindLoom inline app loaded');
-    </script>
-
-    <!-- Service worker registration (ok to leave as-is) -->
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./service-worker.js').catch((err) => {
-            console.log('SW registration failed', err);
-          });
-        });
-      }
-    </script>
+<html>
+  <head><meta charset="utf-8"><title>MindLoom Smoke Test</title></head>
+  <body style="font: 18px/1.5 system-ui; padding: 24px;">
+    <h1>It works 🎉</h1>
+    <p>If you see this, GitHub Pages is serving the file correctly.</p>
   </body>
 </html>
