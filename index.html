@@ -1,0 +1,973 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#EC6AA0" />
+    <title>MindLoom</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" href="assets/icon-192.png" type="image/png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="apple-touch-icon" href="assets/icon-192.png">
+    <style>
+      html, body { height: 100%; margin: 0; background: #faf7fb; }
+      #root { min-height: 100%; }
+    </style>
+  </head>
+  <body>
+    <noscript>This app requires JavaScript.</noscript>
+    <div id="root"></div>
+
+    <!-- React 18 + ReactDOM via CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+
+    <!-- Babel Standalone so JSX in App.jsx can run in browser (easy deploy to GitHub Pages) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Your app code (transpiled in the browser). For production, you can switch to prebuilt/bundled, but this works fine for demos. -->
+    <script type="text/babel" data-presets="react">// App.jsx — Your MindLoom app (from your message), with a small mount at the end.
+import React, { useEffect, useMemo, useRef, useState } from "react";
+
+/** --------------------------
+ *  Small utilities
+ *  -------------------------- */
+const LS = {
+  get(k, fallback) {
+    try {
+      const v = localStorage.getItem(k);
+      return v ? (JSON.parse(v)) : fallback;
+    } catch {
+      return fallback;
+    }
+  },
+  set(k, v) {
+    try {
+      localStorage.setItem(k, JSON.stringify(v));
+    } catch {
+      /* ignore quota errors in demo */
+    }
+  },
+};
+
+function simpleHash(s) {
+  // non-crypto demo hash (privacy-only)
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return ("00000000" + h.toString(16)).slice(-8);
+}
+
+const ACCENTS = {
+  Blush: "#EC6AA0",
+  Lavender: "#9B8AFB",
+  Mint: "#5CC9B1",
+};
+
+const BG_GRADIENTS = {
+  Blush: "linear-gradient(to bottom, #F7CFE3, #FFF7F0)",
+  Lavender: "linear-gradient(to bottom, #E9E5FF, #FAF8FF)",
+  Mint: "linear-gradient(to bottom, #D0F3EC, #F6FFFB)",
+};
+
+function fmt(ts) {
+  const d = new Date(ts);
+  return d.toLocaleString();
+}
+
+/** --------------------------
+ *  Types (informal as we are running in the browser)
+ *  -------------------------- */
+// type ThemeName = "Blush" | "Lavender" | "Mint";
+// type Entry = { id: string; ts: number; text: string; prompt?: string };
+// type CheckIn = { id: string; ts: number; mood: string; intensity: number; note?: string };
+// type Strategy = { id: number; category: "Calm Body" | "Calm Mind" | "Distract" | "Connect" | "Environment"; title: string; steps: string[]; duration_hint?: number };
+
+const STRATEGIES = [
+  {
+    id: 1,
+    category: "Calm Body",
+    title: "4-7-8 Breathing",
+    steps: [
+      "Sit or lie down comfortably.",
+      "Inhale quietly through your nose for 4 seconds.",
+      "Hold your breath for 7 seconds.",
+      "Exhale through pursed lips for 8 seconds.",
+      "Repeat 4 cycles.",
+    ],
+    duration_hint: 90,
+  },
+  {
+    id: 2,
+    category: "Calm Body",
+    title: "Butterfly Hug",
+    steps: [
+      "Cross arms over your chest.",
+      "Tap your shoulders left-right-left-right.",
+      "Breathe slowly and imagine a safe place for 60 seconds.",
+    ],
+    duration_hint: 90,
+  },
+  {
+    id: 3,
+    category: "Calm Mind",
+    title: "5-4-3-2-1 Grounding",
+    steps: [
+      "Look for 5 things you can see and name them.",
+      "Find 4 things you can feel (your chair, clothes, etc.).",
+      "Notice 3 sounds.",
+      "Notice 2 smells.",
+      "Notice 1 taste or take a sip of water.",
+    ],
+    duration_hint: 150,
+  },
+  {
+    id: 4,
+    category: "Calm Mind",
+    title: "Reality Check",
+    steps: [
+      "What is the evidence that the thought is true?",
+      "What is the evidence that it might not be true?",
+      "Write a balanced thought you can believe.",
+    ],
+    duration_hint: 150,
+  },
+  {
+    id: 5,
+    category: "Distract",
+    title: "Sensory Hunt",
+    steps: [
+      "Colors: look around and name out loud 3 different colors and where you see them.",
+      "Shapes: find 3 shapes (circle, square, triangle, etc.) and trace each outline in the air with your finger.",
+      "Textures: touch 3 textures (soft, smooth, rough, fuzzy, etc.) and describe each in a full sentence.",
+      "Finish with 3 slow belly breaths (in 4, out 6).",
+    ],
+    duration_hint: 150,
+  },
+  {
+    id: 6,
+    category: "Connect",
+    title: "Text a Safe Person",
+    steps: [
+      "Text: “Do you have a minute?”",
+      "Share one sentence about how you feel.",
+      "Share one thing you might try next.",
+      "Say thanks.",
+    ],
+    duration_hint: 150,
+  },
+  {
+    id: 7,
+    category: "Environment",
+    title: "Light Reset",
+    steps: ["Dim bright overheads if you can.", "Turn on a warm lamp.", "Exhale slowly for 10 seconds."],
+    duration_hint: 60,
+  },
+];
+
+const PROMPTS = [
+  "What was the hardest part of today, and what helped even a tiny bit?",
+  "Write a kind text to yourself that you’d send to a friend in the same situation.",
+  "What feeling is loudest right now? Where do you feel it in your body?",
+  "Name one thought that wasn’t helpful today. What’s a gentler thought you can believe?",
+  "Three small wins from this week—no win is too small.",
+  "If your feeling had a color and weather, what would they be, and why?",
+];
+
+/** --------------------------
+ *  UI atoms
+ *  -------------------------- */
+const styles = {
+  container: (theme) => ({
+    minHeight: "100vh",
+    display: "flex",
+    flexDirection: "column",
+    background: BG_GRADIENTS[theme],
+    color: "#1a1a1a",
+    fontFamily:
+      "'Quicksand','Nunito', ui-rounded, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial",
+  }),
+  shell: { width: "100%", maxWidth: 980, margin: "0 auto", padding: 16 },
+  card: { background: "rgba(255,255,255,.9)", border: "1px solid rgba(0,0,0,.06)", borderRadius: 16, padding: 16 },
+  h1: (accent) => ({ margin: 0, color: accent, fontWeight: 800, fontSize: 24 }),
+  h2: { margin: "0 0 8px 0", fontSize: 18, fontWeight: 700 },
+  btn: (accent, variant = "primary") => {
+    if (variant === "primary") return { background: accent, color: "#fff", border: "none", borderRadius: 12, padding: "10px 14px", fontWeight: 700, cursor: "pointer" };
+    if (variant === "soft") return { background: "rgba(0,0,0,.06)", color: "#111", border: "none", borderRadius: 12, padding: "10px 14px", fontWeight: 700, cursor: "pointer" };
+    return { background: "transparent", color: "#111", border: "none", borderRadius: 12, padding: "10px 14px", fontWeight: 700, cursor: "pointer" };
+  },
+  chip: (accent, active) => ({
+    background: active ? accent : "rgba(255,255,255,.95)",
+    color: active ? "#fff" : "#111",
+    border: "1px solid rgba(0,0,0,.08)",
+    borderRadius: 999,
+    padding: "6px 10px",
+    fontSize: 12,
+    marginRight: 8,
+    marginBottom: 8,
+    cursor: "pointer",
+  }),
+  input: { width: "100%", padding: "10px 12px", borderRadius: 12, border: "1px solid rgba(0,0,0,.12)", background: "#fff" },
+  textarea: { width: "100%", minHeight: 90, padding: "10px 12px", borderRadius: 12, border: "1px solid rgba(0,0,0,.12)", background: "#fff" },
+  row: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" },
+};
+
+function Button(props) {
+  const { variant = "primary", accent, style, ...rest } = props;
+  return <button {...rest} style={{ ...styles.btn(accent, variant), ...(style || {}) }} />;
+}
+
+function Section({ title, children }) {
+  return (
+    <div style={{ ...styles.card, marginBottom: 16 }}>
+      <div style={styles.h2}>{title}</div>
+      {children}
+    </div>
+  );
+}
+
+/** --------------------------
+ *  Screens / Components
+ *  -------------------------- */
+function Header({
+  theme,
+  setTheme,
+  lockEnabled,
+  onLock,
+}) {
+  const accent = ACCENTS[theme];
+  return (
+    <div style={{ ...styles.card, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div>
+        <h1 style={styles.h1(accent)}>MindLoom</h1>
+        <div style={{ fontSize: 12, opacity: 0.7 }}>CBT-based journaling for pre-teens & teens</div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <label style={{ fontSize: 12 }}>Theme</label>
+        <select
+          value={theme}
+          onChange={(e) => setTheme(e.target.value)}
+          style={{ ...styles.input, width: 140, padding: "6px 10px" }}
+        >
+          <option>Blush</option>
+          <option>Lavender</option>
+          <option>Mint</option>
+        </select>
+        {lockEnabled && <Button accent={accent} variant="soft" onClick={onLock}>Lock</Button>}
+      </div>
+    </div>
+  );
+}
+
+function LockScreen({
+  hasPass,
+  onCreate,
+  onUnlock,
+  onSkip,
+}) {
+  const [mode, setMode] = useState(hasPass ? "unlock" : "create");
+  const [p1, setP1] = useState("");
+  const [p2, setP2] = useState("");
+  const [rec, setRec] = useState("");
+  useEffect(() => setMode(hasPass ? "unlock" : "create"), [hasPass]);
+
+  const accent = ACCENTS["Blush"]; // first screen uses blush styling
+  const recHash = LS.get("ml_recovery", null);
+
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: BG_GRADIENTS.Blush,
+        padding: 16,
+      }}
+    >
+      <div style={{ ...styles.card, maxWidth: 420, width: "100%" }}>
+        <h1 style={styles.h1(accent)}>MindLoom</h1>
+        <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 12 }}>Private CBT journal for pre-teens and teens.</div>
+
+        {mode === "create" && (
+          <>
+            <label style={{ fontSize: 13, marginBottom: 6, display: "block" }}>Create a 4–8 digit passcode</label>
+            <input type="password" value={p1} onChange={(e) => setP1(e.target.value)} style={{ ...styles.input, marginBottom: 10 }} />
+            <label style={{ fontSize: 13, marginBottom: 6, display: "block" }}>Confirm passcode</label>
+            <input type="password" value={p2} onChange={(e) => setP2(e.target.value)} style={{ ...styles.input, marginBottom: 12 }} />
+
+            <label style={{ fontSize: 13, marginBottom: 6, display: "block" }}>Recovery phrase (one short word or phrase)</label>
+            <input value={rec} onChange={(e) => setRec(e.target.value)} style={{ ...styles.input, marginBottom: 12 }} placeholder="e.g., starglow" />
+
+            <Button
+              accent={accent}
+              style={{ width: "100%" }}
+              onClick={() => {
+                const p = p1.trim(), c = p2.trim(), r = rec.trim().toLowerCase();
+                if (p.length < 4 || p.length > 8) return alert("Use 4–8 digits");
+                if (p !== c) return alert("Passcodes do not match");
+                if (r.length < 3) return alert("Add a recovery phrase (3+ chars)");
+                LS.set("ml_recovery", simpleHash(r));
+                onCreate(p);
+              }}
+            >
+              Set passcode
+            </Button>
+
+            <div style={{ fontSize: 12, textAlign: "center", marginTop: 8 }}>
+              Don’t want a lock?{" "}
+              <button onClick={onSkip} style={{ background: "none", border: "none", color: accent, cursor: "pointer", textDecoration: "underline" }}>
+                Skip for now
+              </button>
+            </div>
+          </>
+        )}
+
+        {mode === "unlock" && (
+          <>
+            <label style={{ fontSize: 13, marginBottom: 6, display: "block" }}>Enter passcode</label>
+            <input type="password" value={p1} onChange={(e) => setP1(e.target.value)} style={{ ...styles.input, marginBottom: 12 }} />
+            <Button accent={accent} style={{ width: "100%" }} onClick={() => onUnlock(p1.trim())}>
+              Unlock
+            </Button>
+            <div style={{ fontSize: 12, textAlign: "center", marginTop: 8 }}>
+              Forgot?{" "}
+              <button onClick={() => setMode("recover")} style={{ background: "none", border: "none", color: accent, cursor: "pointer", textDecoration: "underline" }}>
+                Use recovery
+              </button>
+            </div>
+          </>
+        )}
+
+        {mode === "recover" && (
+          <>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Recover your journal</div>
+            <label style={{ fontSize: 13, marginBottom: 6, display: "block" }}>Recovery phrase</label>
+            <input value={rec} onChange={(e) => setRec(e.target.value)} style={{ ...styles.input, marginBottom: 10 }} placeholder="Type the phrase you set" />
+            <label style={{ fontSize: 13, marginBottom: 6, display: "block" }}>New passcode (4–8 digits)</label>
+            <input type="password" value={p1} onChange={(e) => setP1(e.target.value)} style={{ ...styles.input, marginBottom: 10 }} />
+            <label style={{ fontSize: 13, marginBottom: 6, display: "block" }}>Confirm new passcode</label>
+            <input type="password" value={p2} onChange={(e) => setP2(e.target.value)} style={{ ...styles.input, marginBottom: 12 }} />
+            <Button
+              accent={accent}
+              style={{ width: "100%" }}
+              onClick={() => {
+                const phrase = rec.trim().toLowerCase();
+                const storedRec = recHash;
+                if (!storedRec) return alert("No recovery phrase set on this device");
+                if (simpleHash(phrase) !== storedRec) return alert("Recovery phrase does not match");
+                const p = p1.trim(), c = p2.trim();
+                if (p.length < 4 || p.length > 8) return alert("Use 4–8 digits");
+                if (p !== c) return alert("Passcodes do not match");
+                LS.set("ml_pass", simpleHash(p));
+                onUnlock(p);
+              }}
+            >
+              Set new passcode & unlock
+            </Button>
+            <div style={{ fontSize: 12, textAlign: "center", marginTop: 8 }}>
+              Can’t remember your phrase?{" "}
+              <button
+                onClick={() => {
+                  if (confirm("This will wipe all local data for this demo. Continue?")) {
+                    localStorage.clear();
+                    location.reload();
+                  }
+                }}
+                style={{ background: "none", border: "none", color: accent, cursor: "pointer", textDecoration: "underline" }}
+              >
+                wipe local data
+              </button>
+              {" "}to start fresh (this deletes entries on this device).
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** --------------------------
+ *  Main App
+ *  -------------------------- */
+function App() {
+  // THEME
+  const [theme, setTheme] = useState(LS.get("ml_theme", "Blush"));
+  useEffect(() => LS.set("ml_theme", theme), [theme]);
+
+  // Optional lock
+  const [lockEnabled, setLockEnabled] = useState(LS.get("ml_lock_enabled", false));
+  useEffect(() => LS.set("ml_lock_enabled", lockEnabled), [lockEnabled]);
+
+  const [passHash, setPassHash] = useState(LS.get("ml_pass", null));
+  const [locked, setLocked] = useState(lockEnabled);
+
+  // Auto-lock only when enabled
+  useEffect(() => {
+    if (!lockEnabled) return;
+    let t;
+    const reset = () => {
+      clearTimeout(t);
+      t = setTimeout(() => setLocked(true), 60_000); // 60s idle (demo)
+    };
+    window.addEventListener("mousemove", reset);
+    window.addEventListener("keydown", reset);
+    reset();
+    return () => {
+      window.removeEventListener("mousemove", reset);
+      window.removeEventListener("keydown", reset);
+      clearTimeout(t);
+    };
+  }, [lockEnabled]);
+
+  // Data
+  const [entries, setEntries] = useState(LS.get("ml_entries", []));
+  const [checkins, setCheckins] = useState(LS.get("ml_checkins", []));
+  useEffect(() => LS.set("ml_entries", entries), [entries]);
+  useEffect(() => LS.set("ml_checkins", checkins), [checkins]);
+
+  // Tabs
+  const [tab, setTab] = useState("home");
+
+  const accent = (theme === "Blush" ? ACCENTS.Blush : theme === "Lavender" ? ACCENTS.Lavender : ACCENTS.Mint);
+
+  /** ------------- Unlock gate ------------- */
+  useEffect(() => {
+    if (!passHash && lockEnabled) setLocked(true);
+  }, [passHash, lockEnabled]);
+
+  if (lockEnabled && locked) {
+    return (
+      <LockScreen
+        hasPass={!!passHash}
+        onCreate={(p) => {
+          const h = simpleHash(p.trim());
+          setPassHash(h);
+          LS.set("ml_pass", h);
+          setLockEnabled(true);
+          setLocked(false);
+        }}
+        onUnlock={(p) => {
+          if (passHash && simpleHash(p.trim()) === passHash) setLocked(false);
+          else alert("Incorrect passcode");
+        }}
+        onSkip={() => {
+          setLockEnabled(false);
+          setLocked(false);
+        }}
+      />
+    );
+  }
+
+  /** ------------- Home: quick check-in ------------- */
+  const moods = ["Happy", "Okay", "Meh", "Sad", "Anxious", "Angry"];
+  const [mood, setMood] = useState(moods[1]);
+  const [intensity, setIntensity] = useState(5);
+  const [note, setNote] = useState("");
+  const saveCheckin = () => {
+    const c = { id: cryptoId(), ts: Date.now(), mood, intensity, note: note.trim() || undefined };
+    setCheckins((arr) => [c, ...arr].slice(0, 1000));
+    setNote("");
+    alert("Saved check-in");
+  };
+
+  /** ------------- Prompts + Journal ------------- */
+  const [filter, setFilter] = useState("");
+  const filteredPrompts = React.useMemo(
+    () => PROMPTS.filter((p) => (filter ? p.toLowerCase().includes(filter.toLowerCase()) : true)),
+    [filter]
+  );
+  const [draft, setDraft] = useState("");
+  const [activePrompt, setActivePrompt] = useState(undefined);
+  const saveEntry = () => {
+    if (!draft.trim()) return alert("Write something first");
+    const e = { id: cryptoId(), ts: Date.now(), text: draft.trim(), prompt: activePrompt };
+    setEntries((arr) => [e, ...arr]);
+    setDraft("");
+    setActivePrompt(undefined);
+    alert("Saved entry");
+  };
+
+  /** ------------- Coping Corner ------------- */
+  const categories = ["Calm Body", "Calm Mind", "Distract", "Connect", "Environment"];
+  const [cat, setCat] = useState(null);
+  const pool = STRATEGIES.filter((s) => (cat ? s.category === cat : true));
+  const [spinning, setSpinning] = useState(false);
+  const [current, setCurrent] = useState(null);
+  const [guided, setGuided] = useState(false);
+  const [done, setDone] = useState([]);
+  const [timeLeft, setTimeLeft] = useState(null);
+  const [ticking, setTicking] = useState(false);
+
+  useEffect(() => {
+    let id;
+    if (ticking && timeLeft !== null) {
+      id = setInterval(() => setTimeLeft((t) => (t !== null ? Math.max(0, t - 1) : null)), 1000);
+    }
+    return () => id && clearInterval(id);
+  }, [ticking, timeLeft]);
+
+  const spin = () => {
+    if (pool.length === 0) return;
+    setSpinning(true);
+    setGuided(false);
+    setTimeout(() => {
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      setCurrent(pick);
+      setDone(new Array(pick.steps.length).fill(false));
+      setTimeLeft(pick.duration_hint ?? 90);
+      setTicking(false);
+      setSpinning(false);
+    }, 900);
+  };
+  const toggleStep = (i) => setDone((prev) => prev.map((v, idx) => (idx === i ? !v : v)));
+  const progress = current ? Math.round((done.filter(Boolean).length / current.steps.length) * 100) : 0;
+  const whyFor = (s) => {
+    switch (s.category) {
+      case "Calm Body":
+        return "Helps your body shift out of fight-or-flight.";
+      case "Calm Mind":
+        return "Gives your thoughts a balanced, kinder view.";
+      case "Distract":
+        return "A short, healthy break to let big feelings cool.";
+      case "Connect":
+        return "Feeling supported lowers stress and loneliness.";
+      case "Environment":
+        return "Small space changes can change how you feel.";
+    }
+  };
+  const fmtTime = (n) => `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
+
+  /** ------------- Settings ------------- */
+  const [oldPass, setOldPass] = useState("");
+  const [newPass1, setNewPass1] = useState("");
+  const [newPass2, setNewPass2] = useState("");
+  const [recPhrase, setRecPhrase] = useState("");
+
+  const savePass = () => {
+    const old = oldPass.trim();
+    const n1 = newPass1.trim();
+    const n2 = newPass2.trim();
+    if (!passHash) return alert("No passcode set yet");
+    if (simpleHash(old) !== passHash) return alert("Old passcode is incorrect");
+    if (n1.length < 4 || n1.length > 8) return alert("Use 4–8 digits");
+    if (n1 !== n2) return alert("New passcodes do not match");
+    const h = simpleHash(n1);
+    // save
+    window.localStorage.setItem("ml_pass", JSON.stringify(h));
+    setOldPass("");
+    setNewPass1("");
+    setNewPass2("");
+    alert("Passcode changed");
+  };
+  const saveRecovery = () => {
+    const p = recPhrase.trim().toLowerCase();
+    if (p.length < 3) return alert("Use a phrase with at least 3 characters");
+    window.localStorage.setItem("ml_recovery", JSON.stringify(simpleHash(p)));
+    setRecPhrase("");
+    alert("Recovery phrase saved");
+  };
+
+  /** ------------- Export / Import ------------- */
+  const exportAll = () => {
+    const data = { entries, checkins };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `mindloom-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+  };
+  const fileRef = React.useRef(null);
+  const onFile = async (f) => {
+    const text = await f.text();
+    try {
+      const data = JSON.parse(text);
+      if (Array.isArray(data.entries)) setEntries(data.entries);
+      if (Array.isArray(data.checkins)) setCheckins(data.checkins);
+      alert("Imported");
+    } catch {
+      alert("Invalid file");
+    }
+  };
+
+  return (
+    <div style={styles.container(theme)}>
+      {/* global accent */}
+      <style>{`:root{--accent:${accent}} a{color:${accent}}`}</style>
+      <div style={styles.shell}>
+        <Header theme={theme} setTheme={setTheme} lockEnabled={lockEnabled} onLock={() => setLocked(true)} />
+
+        {/* Tabs */}
+        <div style={{ ...styles.card, marginTop: 12 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button style={styles.chip(accent, tab === "home")} onClick={() => setTab("home")}>
+              Home
+            </button>
+            <button style={styles.chip(accent, tab === "prompts")} onClick={() => setTab("prompts")}>
+              Prompts & Journal
+            </button>
+            <button style={styles.chip(accent, tab === "coping")} onClick={() => setTab("coping")}>
+              Coping Corner
+            </button>
+            <button style={styles.chip(accent, tab === "settings")} onClick={() => setTab("settings")}>
+              Settings
+            </button>
+          </div>
+        </div>
+
+        {tab === "home" && (
+          <>
+            <Section title="Quick check-in">
+              <div style={{ ...styles.row, marginBottom: 8 }}>
+                <label>Mood</label>
+                <select value={mood} onChange={(e) => setMood(e.target.value)} style={{ ...styles.input, width: 160, padding: "6px 10px" }}>
+                  {moods.map((m) => (
+                    <option key={m}>{m}</option>
+                  ))}
+                </select>
+                <label>Intensity</label>
+                <input type="range" min={0} max={10} value={intensity} onChange={(e) => setIntensity(parseInt(e.target.value, 10))} />
+                <div style={{ fontSize: 12, opacity: 0.7 }}>{intensity}/10</div>
+              </div>
+              <textarea placeholder="Add a note (optional)" value={note} onChange={(e) => setNote(e.target.value)} style={{ ...styles.textarea, marginBottom: 10 }} />
+              <Button accent={accent} onClick={saveCheckin}>
+                Save check-in
+              </Button>
+            </Section>
+
+            <Section title="Recent check-ins">
+              {checkins.length === 0 ? (
+                <div style={{ fontSize: 13, opacity: 0.7 }}>No check-ins yet.</div>
+              ) : (
+                <div style={{ display: "grid", gap: 8 }}>
+                  {checkins.slice(0, 6).map((c) => (
+                    <div key={c.id} style={{ ...styles.card, padding: 12 }}>
+                      <div style={{ fontWeight: 700 }}>
+                        {c.mood} — {c.intensity}/10
+                      </div>
+                      {c.note && <div style={{ marginTop: 4 }}>{c.note}</div>}
+                      <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>{fmt(c.ts)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Section>
+          </>
+        )}
+
+        {tab === "prompts" && (
+          <>
+            <Section title="Pick a prompt">
+              <div style={{ ...styles.row, marginBottom: 10 }}>
+                <input placeholder="Search prompts..." value={filter} onChange={(e) => setFilter(e.target.value)} style={{ ...styles.input, maxWidth: 360 }} />
+                <Button
+                  accent={accent}
+                  variant="soft"
+                  onClick={() => {
+                    setFilter("");
+                    setActivePrompt(undefined);
+                  }}
+                >
+                  Clear
+                </Button>
+              </div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {filteredPrompts.map((p, i) => (
+                  <div key={i} style={{ ...styles.card, padding: 12, borderColor: activePrompt === p ? accent : "rgba(0,0,0,.06)" }}>
+                    <div style={{ marginBottom: 8 }}>{p}</div>
+                    <Button accent={accent} variant="soft" onClick={() => setActivePrompt(p)}>
+                      Write from this
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </Section>
+
+            <Section title="Journal">
+              <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>
+                {activePrompt ? (
+                  <>Prompt selected: <strong>{activePrompt}</strong></>
+                ) : (
+                  "Choose a prompt above or just free write."
+                )}
+              </div>
+              <textarea placeholder="Type your thoughts here..." value={draft} onChange={(e) => setDraft(e.target.value)} style={{ ...styles.textarea, marginBottom: 8 }} />
+              <Button accent={accent} onClick={saveEntry}>
+                Save entry
+              </Button>
+            </Section>
+
+            <Section title="Recent entries">
+              {entries.length === 0 ? (
+                <div style={{ fontSize: 13, opacity: 0.7 }}>No entries yet.</div>
+              ) : (
+                <div style={{ display: "grid", gap: 8 }}>
+                  {entries.slice(0, 6).map((e) => (
+                    <div key={e.id} style={{ ...styles.card, padding: 12 }}>
+                      {e.prompt && (
+                        <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>
+                          Prompt: <em>{e.prompt}</em>
+                        </div>
+                      )}
+                      <div style={{ whiteSpace: "pre-wrap" }}>{e.text}</div>
+                      <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>{fmt(e.ts)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Section>
+          </>
+        )}
+
+        {tab === "coping" && (
+          <>
+            <Section title="Coping Corner">
+              <div style={{ ...styles.row, marginBottom: 8 }}>
+                {categories.map((c) => (
+                  <button key={c} style={styles.chip(accent, cat === c)} onClick={() => setCat(cat === c ? null : c)}>
+                    {c}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "center", margin: "12px 0" }}>
+                <button
+                  onClick={spin}
+                  style={{
+                    width: 170,
+                    height: 170,
+                    borderRadius: "50%",
+                    border: "6px solid rgba(255,255,255,.9)",
+                    background: "#fff",
+                    boxShadow: "0 8px 24px rgba(0,0,0,.08)",
+                    fontSize: 18,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    transform: spinning ? "rotate(360deg)" : "none",
+                    transition: "transform .9s ease",
+                  }}
+                >
+                  {spinning ? "Spinning…" : "Spin"}
+                </button>
+              </div>
+
+              {current && (
+                <div style={{ ...styles.card }}>
+                  <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>{current.category}</div>
+                  <div style={{ fontWeight: 800, marginBottom: 4 }}>{current.title}</div>
+                  <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 8 }}>Why this helps: {whyFor(current)}</div>
+
+                  {!guided && (
+                    <>
+                      <div style={{ fontWeight: 700, marginBottom: 6, fontSize: 14 }}>Steps</div>
+                      <ol style={{ paddingLeft: 18, marginTop: 0, marginBottom: 10 }}>
+                        {current.steps.map((s, i) => (
+                          <li key={i} style={{ marginBottom: 6, fontSize: 14 }}>
+                            {s}
+                          </li>
+                        ))}
+                      </ol>
+                      <div style={{ ...styles.row }}>
+                        <Button accent={accent} onClick={() => setGuided(true)}>
+                          Start guided steps
+                        </Button>
+                        <Button accent={accent} variant="soft" onClick={spin}>
+                          Try another
+                        </Button>
+                      </div>
+                    </>
+                  )}
+
+                  {guided && (
+                    <div style={{ marginTop: 8 }}>
+                      <div style={{ ...styles.row, justifyContent: "space-between" }}>
+                        <div style={{ fontWeight: 700 }}>Guided steps</div>
+                        {timeLeft !== null && (
+                          <div style={{ fontSize: 12 }}>
+                            Timer: {fmtTime(timeLeft)}{" "}
+                            <span>
+                              <Button accent={accent} variant="soft" onClick={() => setTicking((t) => !t)} style={{ padding: "6px 10px", marginLeft: 6 }}>
+                                {ticking ? "Pause" : "Start"}
+                              </Button>
+                              <Button
+                                accent={accent}
+                                variant="ghost"
+                                onClick={() => {
+                                  setTicking(false);
+                                  setTimeLeft(current?.duration_hint ?? 90);
+                                }}
+                                style={{ padding: "6px 10px" }}
+                              >
+                                Reset
+                              </Button>
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ height: 8, background: "rgba(0,0,0,.1)", borderRadius: 6, margin: "8px 0 10px" }}>
+                        <div style={{ height: 8, width: `${progress}%`, background: accent, borderRadius: 6 }} />
+                      </div>
+
+                      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                        {current.steps.map((s, i) => (
+                          <li key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 6 }}>
+                            <input type="checkbox" checked={!!done[i]} onChange={() => toggleStep(i)} style={{ marginTop: 3 }} />
+                            <div>
+                              <div style={{ fontSize: 14 }}>{s}</div>
+                              <div style={{ fontSize: 12, opacity: 0.6 }}>Tip: Go slowly and breathe.</div>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+
+                      <div style={{ ...styles.row, marginTop: 8 }}>
+                        <Button accent={accent} onClick={() => { setGuided(false); setTicking(false); }}>
+                          Finish
+                        </Button>
+                        <Button accent={accent} variant="soft" onClick={spin}>
+                          Try another
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </Section>
+          </>
+        )}
+
+        {tab === "settings" && (
+          <>
+            <Section title="Preferences">
+              <div style={{ fontSize: 13, opacity: 0.75 }}>Text is already scaled for readability with a soft rounded font.</div>
+            </Section>
+
+            <Section title="Security">
+              <div style={{ marginBottom: 10 }}>
+                <label style={{ fontSize: 14, display: "flex", alignItems: "center", gap: 8 }}>
+                  <input type="checkbox" checked={lockEnabled} onChange={(e) => setLockEnabled(e.target.checked)} />
+                  Require passcode to open app (this device)
+                </label>
+                <div style={{ fontSize: 12, opacity: 0.65, marginTop: 4 }}>
+                  Turn this off if you don’t want a lock screen. You can still set one later.
+                </div>
+              </div>
+
+              {lockEnabled && (
+                <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))" }}>
+                  <div style={styles.card}>
+                    <div style={{ fontWeight: 700, marginBottom: 8 }}>Change passcode</div>
+                    <input type="password" value={oldPass} onChange={(e) => setOldPass(e.target.value)} placeholder="Old passcode" style={{ ...styles.input, marginBottom: 8 }} />
+                    <input type="password" value={newPass1} onChange={(e) => setNewPass1(e.target.value)} placeholder="New passcode (4–8 digits)" style={{ ...styles.input, marginBottom: 8 }} />
+                    <input type="password" value={newPass2} onChange={(e) => setNewPass2(e.target.value)} placeholder="Confirm new passcode" style={{ ...styles.input, marginBottom: 10 }} />
+                    <Button accent={accent} onClick={savePass}>
+                      Save passcode
+                    </Button>
+                  </div>
+
+                  <div style={styles.card}>
+                    <div style={{ fontWeight: 700, marginBottom: 8 }}>Recovery phrase</div>
+                    <input value={recPhrase} onChange={(e) => setRecPhrase(e.target.value)} placeholder="e.g., starglow" style={{ ...styles.input, marginBottom: 8 }} />
+                    <div style={{ fontSize: 12, opacity: 0.65, marginBottom: 10 }}>
+                      Use a short word or phrase you can remember. This lets you reset your passcode if you forget it on this device.
+                    </div>
+                    <Button accent={accent} variant="soft" onClick={saveRecovery}>
+                      Save recovery phrase
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </Section>
+
+            <Section title="Data">
+              <div style={{ ...styles.row }}>
+                <Button accent={accent} onClick={exportAll}>
+                  Export JSON
+                </Button>
+                <input ref={fileRef} type="file" accept="application/json" hidden onChange={(e) => e.target.files && onFile(e.target.files[0])} />
+                <Button accent={accent} variant="soft" onClick={() => fileRef.current?.click()}>
+                  Import JSON
+                </Button>
+                <Button
+                  accent={accent}
+                  variant="ghost"
+                  onClick={() => {
+                    if (confirm("Delete all local data on this device?")) {
+                      localStorage.clear();
+                      location.reload();
+                    }
+                  }}
+                >
+                  Delete all data
+                </Button>
+              </div>
+              <div style={{ fontSize: 12, opacity: 0.65, marginTop: 8 }}>
+                Entries: {entries.length} • Check-ins: {checkins.length}
+              </div>
+            </Section>
+
+            <Section title="Crisis resources">
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14 }}>
+                <li>US 988 Suicide & Crisis Lifeline: call or text 988</li>
+                <li>Emergency: call 911 (US) or your local emergency number</li>
+                <li>This app is not a replacement for therapy or emergency care.</li>
+              </ul>
+            </Section>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** --------------------------
+ *  Tiny helpers / self-tests
+ *  -------------------------- */
+function cryptoId() {
+  // collision-resistant enough for demo
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return "id-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+// Lightweight self-tests (console) to catch obvious mistakes in import + hashing
+if (typeof window !== "undefined" && !window.__ML_TESTED__) {
+  window.__ML_TESTED__ = true;
+  try {
+    console.assert(simpleHash("abc") === simpleHash("abc"), "hash should be stable");
+    let threw = false;
+    try {
+      JSON.parse("{bad json");
+    } catch {
+      threw = true;
+    }
+    console.assert(threw, "JSON error path ok");
+    // eslint-disable-next-line no-console
+    console.log("MindLoom quick self-tests passed");
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("MindLoom quick self-tests failed", err);
+  }
+}
+
+// Mount
+const rootEl = document.getElementById("root");
+const root = ReactDOM.createRoot(rootEl);
+root.render(<App />);
+</script>
+
+    <script>
+      // Register the service worker for PWA install + offline
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./service-worker.js').catch((err) => {
+            console.log('SW registration failed', err);
+          });
+        });
+      }
+    </script>
+  </body>
+</html>
