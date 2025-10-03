@@ -1,8 +1,54 @@
 <!doctype html>
-<html>
-  <head><meta charset="utf-8"><title>MindLoom Smoke Test</title></head>
-  <body style="font: 18px/1.5 system-ui; padding: 24px;">
-    <h1>It works 🎉</h1>
-    <p>If you see this, GitHub Pages is serving the file correctly.</p>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#EC6AA0" />
+    <title>MindLoom</title>
+
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="icon-192.png" type="image/png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="apple-touch-icon" href="icon-192.png">
+
+    <style>
+      html, body { height: 100%; margin: 0; background: #faf7fb; }
+      #root { min-height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <!-- React 18 + ReactDOM via jsDelivr (mirror of unpkg) -->
+    <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <!-- Babel for JSX (also via jsDelivr) -->
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"></script>
+
+    <!-- Inline app (no imports) -->
+    <script type="text/babel" data-presets="react">
+      function App() {
+        return (
+          <div style={{padding: 24, fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial"}}>
+            <h1 style={{marginTop: 0, color: "#EC6AA0"}}>MindLoom</h1>
+            <p>If you can see this, React is running from jsDelivr.</p>
+          </div>
+        );
+      }
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(<App />);
+      console.log('MindLoom inline app loaded (jsDelivr)');
+    </script>
+
+    <!-- Temporarily disable SW to avoid caching issues -->
+    <script>
+      // Commented for debugging; re-enable after it works
+      // if ('serviceWorker' in navigator) {
+      //   window.addEventListener('load', () => {
+      //     navigator.serviceWorker.register('./service-worker.js');
+      //   });
+      // }
+    </script>
   </body>
 </html>
