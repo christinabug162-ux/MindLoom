@@ -1,24 +1,100 @@
 <!doctype html>
-<html>
-  <head><meta charset="utf-8"><title>React No-Babel Test</title></head>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#EC6AA0" />
+    <title>MindLoom</title>
+
+    <!-- PWA -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="icon-192.png" type="image/png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="apple-touch-icon" href="icon-192.png">
+
+    <style>
+      html, body { height: 100%; margin: 0; background: #faf7fb; }
+      #root { min-height: 100%; }
+      #status { font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; padding: 16px; color: #444; }
+      #status strong { color: #EC6AA0; }
+    </style>
+  </head>
   <body>
     <div id="root"></div>
+    <div id="status"></div>
 
-    <!-- React UMD (no Babel needed) -->
+    <!-- React 18 (UMD) -->
     <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 
+    <!-- Try to load Babel from TWO CDNs, with clear fallback messaging -->
     <script>
-      // No JSX here; just plain React.createElement:
-      function App() {
-        return React.createElement('div', {style:{padding:'24px',fontFamily:'system-ui'}},
-          React.createElement('h1', {style:{margin:0,color:'#EC6AA0'}}, 'React loaded (no Babel)'),
-          React.createElement('p', null, 'If you can see this, React UMD scripts loaded correctly.')
+      (function loadBabelAndRun(){
+        const status = (msg) => { const n = document.getElementById('status'); if (n) n.innerHTML = msg };
+        function runApp() {
+          status(""); // clear
+          // ======== YOUR APP CODE (JSX + TypeScript ok) ========
+          // Remove any "import React" / "export default" lines.
+          // Keep the mount lines at the bottom.
+          // -----------------------------------------------------
+          // ↓↓↓ I put a tiny test UI here so you see something immediately ↓↓↓
+          const App = () => (
+            <div style={{padding:24, fontFamily:"system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial"}}>
+              <h1 style={{marginTop:0, color:"#EC6AA0"}}>MindLoom</h1>
+              <p>If you can see this, JSX is compiling in your browser.</p>
+              <p>Next: paste your full app code right here.</p>
+            </div>
+          );
+          const root = ReactDOM.createRoot(document.getElementById('root'));
+          root.render(React.createElement(App));
+          // ======== END APP CODE ========
+        }
+
+        function addScript(src, onload, onerror){
+          const s = document.createElement('script');
+          s.src = src; s.async = true; s.onload = onload; s.onerror = onerror; document.head.appendChild(s);
+        }
+
+        // 1st try: jsDelivr
+        addScript(
+          "https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js",
+          () => {
+            // Use Babel to compile the inline JSX in runApp()
+            const t = document.createElement('script');
+            t.type = "text/babel";
+            t.setAttribute("data-presets", "typescript,react");
+            t.appendChild(document.createTextNode("(" + runApp.toString() + ")();"));
+            document.body.appendChild(t);
+          },
+          () => {
+            // 2nd try: unpkg
+            addScript(
+              "https://unpkg.com/@babel/standalone/babel.min.js",
+              () => {
+                const t = document.createElement('script');
+                t.type = "text/babel";
+                t.setAttribute("data-presets", "typescript,react");
+                t.appendChild(document.createTextNode("(" + runApp.toString() + ")();"));
+                document.body.appendChild(t);
+              },
+              () => {
+                status('Could not load <strong>Babel</strong> from either CDN. ' +
+                  'Try turning off ad/script blockers for this site, or use another network. ' +
+                  'React itself is loaded (you can verify by opening the Console).');
+              }
+            );
+          }
         );
-      }
-      const root = ReactDOM.createRoot(document.getElementById('root'));
-      root.render(React.createElement(App));
-      console.log('React no-Babel test loaded');
+      })();
     </script>
+
+    <!-- (Optional) SW registration — re-enable after everything renders fine
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => navigator.serviceWorker.register('./service-worker.js'));
+      }
+    </script>
+    -->
   </body>
 </html>
